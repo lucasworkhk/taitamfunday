@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code 掃描器</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+            text-align: center;
+        }
+        #video-container {
+            width: 100%;
+            max-width: 500px;
+            margin: 20px auto;
+            border: 2px solid #333;
+            background-color: #000;
+        }
+        #qr-video {
+            width: 100%;
+            height: auto;
+            display: none;
+        }
+        #result-container {
+            margin-top: 20px;
+            font-size: 1.5em;
+            font-weight: bold;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        .green-screen {
+            background-color: #a8e6a8;
+            color: #1a511a;
+        }
+        .red-screen {
+            background-color: #ff9999;
+            color: #8c0000;
+        }
+        #instruction {
+            font-size: 1.2em;
+            margin-top: 10px;
+            color: #555;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+</head>
+<body>
+    <h1>QR Code 掃描器</h1>
+    <div id="video-container">
+        <video id="qr-video" playsinline></video>
+    </div>
+    <div id="result-container">
+        <p>請掃描 QR Code。</p>
+    </div>
+    <p id="instruction">請按 **Enter** 鍵重新開始掃描。</p>
+
+    <script>
+        const video = document.getElementById('qr-video');
+        const resultContainer = document.getElementById('result-container');
+        const instruction = document.getElementById('instruction');
+        let stream = null;
+        let animationFrameId = null;
+
+        function startScanner() {
+            // 顯示影片並隱藏結果
+            video.style.display = 'block';
+            resultContainer.textContent = '掃描中...';
+            resultContainer.className = '';
+            instruction.style.display = 'none';
+
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+                .then(function(s) {
+                    stream = s;
+                    video.srcObject = stream;
+                    video.setAttribute("playsinline", true); // 適用於 iOS 裝置
+                    video.play();
+                    requestAnimationFrame(tick);
+                })
+                .catch(function(err) {
+                    console.error("無法存取相機: ", err);
+                    resultContainer.textContent = '錯誤：無法存取相機。請檢查權限設定。';
+                    resultContainer.className = 'red-screen';
+                    video.style.display = 'none';
+                });
+        }
+
+        function stopScanner() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+            }
+        }
+
+        function tick() {
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                const canvasElement = document.createElement("canvas");
+                const canvasContext = canvasElement.getContext("2d");
+                canvasElement.height = video.videoHeight;
+                canvasElement.width = video.videoWidth;
+                canvasContext.drawImage(video, 0, 0, canvasElement.width, canvasElement.height);
+                const imageData = canvasContext.getImageData(0, 0, canvasElement.width, canvasElement.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert",
+                });
+
+                if (code) {
+                    handleQRCode(code.data);
+                    return;
+                }
+            }
+            animationFrameId = requestAnimationFrame(tick);
+        }
+
+        function handleQRCode(scannedCode) {
+            stopScanner();
+            video.style.display = 'none';
+            instruction.style.display = 'block';
+
+            // --- 在此處貼上您的 Google Apps Script 部署後的 URL ---
+            const WEB_APP_URL = 'https://script.google.com/a/macros/scouting.org.hk/s/AKfycbyYxOpJDqO1iCdnAk3nVNXloyuaSawpYdo1spXdP8P5ffqgC0lvBvAMgQROm8ruErvsCA/exec'; 
+
+            resultContainer.textContent = '正在檢查代碼...';
+            resultContainer.className = '';
+
+            fetch(`${WEB_APP_URL}?code=${encodeURIComponent(scannedCode)}`)
+                .then(response => response.json())
+                .then(data => {
+                    console.log("API 響應:", data);
+                    if (data.status === 'success') {
+                        resultContainer.textContent = '✅ 成功：可以兌換！';
+                        resultContainer.className = 'green-screen';
+                    } else if (data.status === 'already_redeemed') {
+                        resultContainer.textContent = '⚠️ 已兌換：此獎品已被領取。';
+                        resultContainer.className = 'red-screen';
+                    } else {
+                        // 處理 'not_found' 和 'error' 狀態
+                        resultContainer.textContent = `❌ ${data.message}`;
+                        resultContainer.className = 'red-screen';
+                    }
+                })
+                .catch(error => {
+                    console.error("擷取錯誤:", error);
+                    resultContainer.textContent = '❌ 錯誤：無法連接到伺服器。';
+                    resultContainer.className = 'red-screen';
+                });
+        }
+
+        // 頁面載入後開始掃描
+        window.onload = startScanner;
+
+        // 監聽 Enter 鍵以重新開始掃描
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                startScanner();
+            }
+        });
+    </script>
+</body>
+</html>
+
